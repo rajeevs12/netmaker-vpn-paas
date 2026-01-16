@@ -1,0 +1,72 @@
+version: '3.9'
+
+networks:
+  netmaker-net:
+    driver: bridge
+
+services:
+  netmaker-broker:
+    image: 'eclipse-mosquitto:2'
+    container_name: netmaker-broker
+    restart: unless-stopped
+    command: >
+      sh -c "echo 'listener 1883' > /mosquitto/config/mosquitto.conf &&
+             echo 'allow_anonymous true' >> /mosquitto/config/mosquitto.conf &&
+             mosquitto -c /mosquitto/config/mosquitto.conf"
+    networks:
+      - netmaker-net
+    volumes:
+      - 'netmaker-mosquitto-config:/mosquitto/config'
+      - 'netmaker-mosquitto-data:/mosquitto/data'
+      - 'netmaker-mosquitto-log:/mosquitto/log'
+
+  netmaker:
+    image: 'gravitl/netmaker:v0.30.0'
+    container_name: netmaker
+    restart: unless-stopped
+    depends_on:
+      - netmaker-broker
+    networks:
+      - netmaker-net
+    environment:
+      DB_TYPE: sqlite
+      DB_PATH: /data/netmaker.db
+      BROKER_ENDPOINT: 'netmaker-broker:1883'
+      SERVER_HOST: vpn.hostkb.com
+      MASTER_KEY: b0b0df30e78603cb493fa1efb44b29daad8f542b7415601f305a6d26ca90a57f
+      API_PORT: '8081'
+      NODE_ENV: production
+    volumes:
+      - 'netmaker-data:/data'
+
+  netmaker-ui:
+    image: 'gravitl/netmaker-ui:latest'
+    container_name: netmaker-ui
+    restart: unless-stopped
+    depends_on:
+      - netmaker
+    networks:
+      - netmaker-net
+    environment:
+      BACKEND_URL: '/api'  # internal API path
+
+  nginx:
+    image: 'nginx:stable-alpine'
+    container_name: netmaker-nginx
+    restart: unless-stopped
+    networks:
+      - netmaker-net
+    ports:
+      - "80:80"    # Coolify can auto-redirect HTTP -> HTTPS
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - netmaker
+      - netmaker-ui
+
+volumes:
+  netmaker-data: null
+  netmaker-mosquitto-config: null
+  netmaker-mosquitto-data: null
+  netmaker-mosquitto-log: null
